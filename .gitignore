@@ -1,32 +1,4 @@
-# .gitignore - Mux-OS Stealth Layer
-
-# :: Identity Matrix (DO NOT REMOVE)
-.setting
-.mux_identity
+# Runtime state files
 .mux_state
-vendor.csv
-xum.csv
-.passcode
-.core
-
-# :: System Backups
-bak/
-*.bak
-*.atb
-*.tmp
-*.log
-*.qa
-*.chk
-*_backup_*
-.report
-
-# :: Factory Reset Files
-app.csv.temp
-app.csv.temp.*
-
-# :: User Specific Cache
-.DS_Store
-Thumbs.db
-.bash_history
-.viminfo
-*~
+.mux_identity
+.setting
