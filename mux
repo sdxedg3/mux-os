@@ -5,6 +5,7 @@
 
 MUX_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="$MUX_ROOT/.mux_state"
+CONFIG_FILE="$MUX_ROOT/.mux_config"
 APP_CSV="$MUX_ROOT/app.csv"
 
 C_RESET="\033[0m"
@@ -14,11 +15,15 @@ C_RED="\033[1;31m"
 C_CYAN="\033[1;36m"
 C_GRAY="\033[1;30m"
 
-# ── State management ────────────────────────────────────────────
+# ── State & config management ───────────────────────────────────
 
 load_state() {
     MUX_STATUS="DEFAULT"
     [ -f "$STATE_FILE" ] && source "$STATE_FILE"
+}
+
+load_config() {
+    [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 }
 
 save_state() {
@@ -155,20 +160,178 @@ cmd_status() {
 cmd_help() {
     echo -e "${C_CYAN}Mux-OS MVP${C_RESET} — Android App Launcher"
     echo ""
-    echo -e "  ${C_GREEN}mux login${C_RESET}         Unlock command mode"
-    echo -e "  ${C_GREEN}mux logout${C_RESET}        Lock command mode"
-    echo -e "  ${C_GREEN}mux status${C_RESET}        Show current state"
-    echo -e "  ${C_GREEN}mux${C_RESET}               List available apps"
-    echo -e "  ${C_GREEN}mux <app>${C_RESET}          Launch an app"
-    echo -e "  ${C_GREEN}mux <app> <query>${C_RESET}   Search in app or web"
+    echo -e "  ${C_GREEN}mux login${C_RESET}               Unlock command mode"
+    echo -e "  ${C_GREEN}mux logout${C_RESET}              Lock command mode"
+    echo -e "  ${C_GREEN}mux status${C_RESET}              Show current state"
+    echo -e "  ${C_GREEN}mux config <key>${C_RESET}        Set OpenAI API key"
+    echo -e "  ${C_GREEN}mux ask <text>${C_RESET}          Natural language → launch"
+    echo -e "  ${C_GREEN}mux voice${C_RESET}                Voice → launch (Termux:API)"
+    echo -e "  ${C_GREEN}mux${C_RESET}                     List available apps"
+    echo -e "  ${C_GREEN}mux <app>${C_RESET}                Launch an app"
+    echo -e "  ${C_GREEN}mux <app> <query>${C_RESET}        Search in app or web"
     echo ""
     list_commands
+}
+
+# ── AI integration ───────────────────────────────────────────────
+
+cmd_config() {
+    local key="$1"
+    if [ -z "$key" ]; then
+        echo "Usage: mux config <openai_api_key>"
+        echo ""
+        echo "Set your OpenAI API key for AI-powered commands."
+        echo "Get one at: https://platform.openai.com/api-keys"
+        return 1
+    fi
+    echo "OPENAI_API_KEY=\"$key\"" > "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+    echo -e "${C_GREEN}✓ API key saved${C_RESET}"
+}
+
+cmd_ask() {
+    local query="$*"
+    if [ -z "$OPENAI_API_KEY" ]; then
+        echo -e "${C_RED}✗ No API key. Run 'mux config <key>' first.${C_RESET}"
+        return 1
+    fi
+    if [ -z "$query" ]; then
+        echo "Usage: mux ask <what you want to do>"
+        echo "  e.g. mux ask 打开Chrome看新闻"
+        echo "  e.g. mux ask 导航到故宫"
+        echo "  e.g. mux ask 给我搜一下今天天气"
+        return 1
+    fi
+
+    # Build command list from CSV
+    local cmd_list=""
+    while IFS=',' read -r raw_cmd raw_type rest || [ -n "$raw_cmd" ]; do
+        [[ "$raw_cmd" =~ ^#.*$ || -z "$raw_cmd" ]] && continue
+        cmd_list+="$(echo "$raw_cmd" | tr -d ' \"') "
+    done < "$APP_CSV"
+
+    # Call OpenAI API
+    echo -e "${C_GRAY}  → Thinking...${C_RESET}"
+
+    # Build payload via python3 to avoid shell escaping issues
+    export MUX_SYS_MSG="You map natural language requests to Mux-OS commands.
+
+Available commands: $cmd_list
+
+Rules:
+- Pick the BEST matching command from the list above
+- If request involves search/info/query, extract the search text
+- If nothing matches, use \"web\" as app and whole request as query
+- Respond ONLY with valid JSON, no other text
+
+Examples:
+{\"app\": \"chrome\", \"query\": \"news\"}
+{\"app\": \"yt\", \"query\": \"周杰伦 最伟大的作品\"}
+{\"app\": \"mapgo\", \"query\": \"故宫博物院\"}
+{\"app\": \"gmail\", \"query\": \"\"}
+{\"app\": \"web\", \"query\": \"今天天气怎么样\"}"
+
+    export MUX_USER_MSG="$query"
+
+    python3 -c "
+import os, json, sys
+payload = {
+    'model': 'gpt-4o-mini',
+    'messages': [
+        {'role': 'system', 'content': os.environ['MUX_SYS_MSG']},
+        {'role': 'user', 'content': os.environ['MUX_USER_MSG']}
+    ],
+    'temperature': 0.1
+}
+with open('/tmp/mux_ask_payload.json', 'w') as f:
+    json.dump(payload, f)
+"
+
+    local response
+    response=$(curl -s https://api.openai.com/v1/chat/completions \
+        -H "Authorization: Bearer $OPENAI_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d @/tmp/mux_ask_payload.json) || {
+        echo -e "${C_RED}✗ API request failed${C_RESET}"
+        return 1
+    }
+
+    # Parse response
+    echo "$response" > /tmp/mux_ask_response.json
+    local parsed
+    parsed=$(python3 -c "
+import json
+try:
+    with open('/tmp/mux_ask_response.json') as f:
+        data = json.load(f)
+    content = data['choices'][0]['message']['content']
+    result = json.loads(content)
+    print(result.get('app', ''))
+    print(result.get('query', ''))
+except Exception as e:
+    print('')
+    print('')
+    print(f'ERROR: {e}', file=sys.stderr)
+" 2>/tmp/mux_ask_error.log)
+
+    local app=$(echo "$parsed" | sed -n '1p')
+    local search_query=$(echo "$parsed" | sed -n '2p')
+
+    if [ -z "$app" ]; then
+        local err
+        err=$(</tmp/mux_ask_error.log)
+        echo -e "${C_RED}✗ AI parsing failed${C_RESET}"
+        [ -n "$err" ] && echo -e "  ${C_GRAY}${err}${C_RESET}"
+        return 1
+    fi
+
+    # Show what's happening
+    local display_app="$app"
+    [ "$app" == "web" ] && display_app="search"
+    if [ -n "$search_query" ]; then
+        echo -e "${C_GREEN}→ ${display_app}: ${search_query}${C_RESET}"
+    else
+        echo -e "${C_GREEN}→ ${display_app}${C_RESET}"
+    fi
+
+    # Execute
+    if [ "$app" == "web" ]; then
+        launch_app "google" "$search_query"
+    elif [ -n "${CMD_PKG[$app]}" ]; then
+        launch_app "$app" "$search_query"
+    else
+        echo -e "${C_RED}✗ Unknown command: ${app}${C_RESET}"
+        echo "  Falling back to web search..."
+        launch_app "google" "$query"
+    fi
+}
+
+cmd_voice() {
+    if ! command -v termux-speech-to-text &>/dev/null; then
+        echo -e "${C_RED}✗ termux-speech-to-text not found${C_RESET}"
+        echo -e "  Install Termux:API from F-Droid and run:"
+        echo -e "  ${C_GRAY}pkg install termux-api${C_RESET}"
+        return 1
+    fi
+
+    echo -e "${C_CYAN}🎤 Listening...${C_RESET}"
+    local transcript
+    transcript=$(termux-speech-to-text 2>/dev/null)
+
+    if [ -z "$transcript" ]; then
+        echo -e "${C_RED}✗ No speech detected or cancelled${C_RESET}"
+        return 1
+    fi
+
+    echo -e "${C_GRAY}  You said: ${transcript}${C_RESET}"
+    cmd_ask "$transcript"
 }
 
 # ── Main ─────────────────────────────────────────────────────────
 
 main() {
     load_state
+    load_config
     parse_csv
 
     case "${1:-}" in
@@ -180,6 +343,17 @@ main() {
             ;;
         status)
             cmd_status
+            ;;
+        config)
+            shift
+            cmd_config "$@"
+            ;;
+        ask)
+            shift
+            cmd_ask "$@"
+            ;;
+        voice)
+            cmd_voice
             ;;
         help|--help|-h)
             cmd_help
