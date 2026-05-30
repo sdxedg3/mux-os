@@ -79,7 +79,7 @@ launch_app() {
         if [ -n "$engine" ]; then
             local safe_query="${query// /+}"
             local url="${engine}${safe_query}"
-            local intent="am start --user 0 -a android.intent.action.VIEW -d \"$url\""
+            local intent="am start --user 0 -W --activity-clear-task --activity-bring-to-front -a android.intent.action.VIEW -d \"$url\""
             echo -e "${C_GRAY}  → Search: ${query}${C_RESET}"
             eval "$intent" 2>&1
         else
@@ -89,9 +89,9 @@ launch_app() {
     else
         # Direct launch: -n pkg/target or -p pkg
         if [ -n "$target" ]; then
-            local intent="am start --user 0 -n \"$pkg/$target\""
+            local intent="am start --user 0 -W --activity-clear-task --activity-bring-to-front -n \"$pkg/$target\""
         else
-            local intent="am start --user 0 -p \"$pkg\""
+            local intent="am start --user 0 -W --activity-clear-task --activity-bring-to-front -p \"$pkg\""
         fi
         local output
         output=$(eval "$intent" 2>&1)
