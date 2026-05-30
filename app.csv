@@ -2,6 +2,7 @@
 # type: NA=direct launch, NB=supports search query
 #
 # Network & Cloud
+dianping,NA,com.dianping.v1,,
 chrome,NB,com.android.chrome,com.google.android.apps.chrome.Main,https://www.google.com/search?q=
 edge,NB,com.microsoft.emmx,com.microsoft.ruby.Main,https://www.bing.com/search?q=
 yt,NB,com.google.android.youtube,.HomeActivity,https://www.youtube.com/results?search_query=
@@ -21,9 +22,9 @@ meet,NA,com.google.android.apps.tachyon,.MainActivity,
 
 # Maps & Nav
 map,NA,com.google.android.apps.maps,com.google.android.maps.MapsActivity,
-mapto,NB,,,,geo:0,0?q=
-mapway,NB,,,,https://maps.google.com/maps?daddr=
-mapgo,NB,,,,google.navigation:q=
+mapto,NB,,,geo:0,0?q=
+mapway,NB,,,https://maps.google.com/maps?daddr=
+mapgo,NB,,,google.navigation:q=
 
 # Office
 ms365,NA,com.microsoft.office.officehubrow,com.microsoft.office.officesuite.OfficeSuiteActivity,

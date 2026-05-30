@@ -79,7 +79,7 @@ launch_app() {
     local type="${CMD_TYPE["$cmd"]}"
     local engine="${CMD_ENGINE["$cmd"]}"
 
-    if [ -z "$pkg" ]; then
+    if [ -z "$pkg" ] && [ -z "$engine" ]; then
         echo -e "${C_RED}✗ Unknown command: ${cmd}${C_RESET}"
         echo "  Run 'mux' to see available commands."
         return 1
