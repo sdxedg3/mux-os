@@ -200,4 +200,8 @@ main() {
     esac
 }
 
-main "$@"
+# When sourced, only define functions (no execution)
+# When run as 'mux', call main with arguments
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

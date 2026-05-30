@@ -33,6 +33,8 @@ sheet,NA,com.google.android.apps.docs.editors.sheets,com.google.android.apps.doc
 github,NA,com.github.android,.main.MainActivity,
 
 # Communication
+wechat,NA,com.tencent.mm,.ui.LauncherUI,
+
 phone,NA,com.google.android.dialer,.extensions.GoogleDialtactsActivity,
 
 # Productivity
