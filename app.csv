@@ -6,6 +6,7 @@ dianping,NA,com.dianping.v1,,
 chrome,NB,com.android.chrome,com.google.android.apps.chrome.Main,https://www.google.com/search?q=
 edge,NB,com.microsoft.emmx,com.microsoft.ruby.Main,https://www.bing.com/search?q=
 yt,NB,com.google.android.youtube,.HomeActivity,https://www.youtube.com/results?search_query=
+ytmusic,NA,com.google.android.apps.youtube.music,,
 mega,NA,mega.privacy.android.app,.main.ManagerActivity,
 1drive,NA,com.microsoft.skydrive,.MainActivity,
 
