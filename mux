@@ -79,26 +79,18 @@ launch_app() {
         if [ -n "$engine" ]; then
             local safe_query="${query// /+}"
             local url="${engine}${safe_query}"
-            local intent="am start --user 0 -W --activity-clear-task --activity-bring-to-front -a android.intent.action.VIEW -d \"$url\""
             echo -e "${C_GRAY}  → Search: ${query}${C_RESET}"
-            eval "$intent" 2>&1
+            nohup am start --user 0 -a android.intent.action.VIEW -d "$url" >/dev/null 2>&1 &
         else
             echo -e "${C_RED}✗ No search engine configured for: ${cmd}${C_RESET}" >&2
             return 1
         fi
     else
-        # Direct launch: -n pkg/target or -p pkg
+        # Direct launch: -n pkg/target or -p pkg, run in background
         if [ -n "$target" ]; then
-            local intent="am start --user 0 -W --activity-clear-task --activity-bring-to-front -n \"$pkg/$target\""
+            nohup am start --user 0 -n "$pkg/$target" >/dev/null 2>&1 &
         else
-            local intent="am start --user 0 -W --activity-clear-task --activity-bring-to-front -p \"$pkg\""
-        fi
-        local output
-        output=$(eval "$intent" 2>&1)
-        if [[ "$output" == *"Error"* ]]; then
-            echo -e "${C_RED}✗ Launch failed:${C_RESET} $output" >&2
-            echo -e "  ${C_GRAY}Try installing the app from Play Store.${C_RESET}"
-            return 1
+            nohup am start --user 0 -p "$pkg" >/dev/null 2>&1 &
         fi
         echo -e "${C_GREEN}✓ ${cmd}${C_RESET}"
     fi
@@ -117,14 +109,104 @@ list_commands() {
     echo ""
 }
 
-# ── Commands ─────────────────────────────────────────────────────
+# ── Tools ────────────────────────────────────────────────────────
+
+RISH_BIN="/data/data/com.termux/files/usr/bin/rish"
+RISH_READY=""
+
+rish_check() {
+    [ -n "$RISH_READY" ] && return 0
+    if [ -x "$RISH_BIN" ] && timeout 10 "$RISH_BIN" -c "echo ok" 2>/dev/null | grep -q "ok"; then
+        RISH_READY=1
+        return 0
+    fi
+    echo -e "${C_RED}✗ Shizuku not available. Start it with 'shizuku' first.${C_RESET}" >&2
+    return 1
+}
+
+cmd_ps() {
+    rish_check || return 1
+    echo -e "${C_CYAN}Running app processes:${C_RESET}"
+    echo -e "${C_GRAY}  PID  USER         APP${C_RESET}"
+    "$RISH_BIN" -c "
+      ps -ef 2>/dev/null | awk '\$8 ~ /^com\./ || \$8 ~ /^moe\.shizuku/ || \
+        \$8 ~ /^li\.songe/ || \$8 ~ /^org\.chromium/ {
+          printf \"  %-5s %-12s %s\\n\", \$2, \$1, \$8
+        }'
+    " 2>/dev/null | head -40
+}
+
+cmd_top() {
+    rish_check || return 1
+    echo -e "${C_CYAN}System resources:${C_RESET}"
+    "$RISH_BIN" -c "
+      echo '--- Memory ---'
+      memtotal=\$(awk '/MemTotal/ {printf \"%.0f\", \$2/1024}' /proc/meminfo)
+      memfree=\$(awk '/MemAvailable/ {printf \"%.0f\", \$2/1024}' /proc/meminfo)
+      memused=\$((memtotal - memfree))
+      echo \"  Total: \${memtotal}MB  Used: \${memused}MB  Free: \${memfree}MB\"
+      echo ''
+      echo '--- Top CPU consumers ---'
+      top -n 1 -b 2>/dev/null | head -12
+    " 2>/dev/null
+}
+
+cmd_screencap() {
+    rish_check || return 1
+    local filename="mux_$(date +%Y%m%d_%H%M%S).png"
+    local dest="/sdcard/Pictures/Screenshots/${filename}"
+    echo -e "${C_YELLOW}→ Capturing screenshot...${C_RESET}"
+    if "$RISH_BIN" -c "
+      screencap -p '${dest}' && \
+      am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE \
+        -d file://${dest} > /dev/null 2>&1 && \
+      echo OK
+    " 2>/dev/null | grep -q "OK"; then
+        echo -e "${C_GREEN}✓ Screenshot saved → ${dest}${C_RESET}"
+    else
+        # Fallback to /sdcard/
+        dest="/sdcard/${filename}"
+        if "$RISH_BIN" -c "
+          screencap -p '${dest}' && \
+          am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE \
+            -d file://${dest} > /dev/null 2>&1 && \
+          echo OK
+        " 2>/dev/null | grep -q "OK"; then
+            echo -e "${C_GREEN}✓ Screenshot saved → ${dest}${C_RESET}"
+        else
+            echo -e "${C_RED}✗ Screenshot failed${C_RESET}"
+            return 1
+        fi
+    fi
+}
+
+cmd_notify() {
+    local title="${1:-Mux-OS}"
+    local content="${2:-Hello from Mux-OS!}"
+    if command -v termux-notification > /dev/null 2>&1; then
+        termux-notification --title "$title" --content "$content" --id mux-os > /dev/null 2>&1
+        echo -e "${C_GREEN}✓ Notification sent${C_RESET}"
+    else
+        echo -e "${C_RED}✗ termux-notification not found${C_RESET}"
+        echo "  Install Termux:API from F-Droid and run: pkg install termux-api"
+        return 1
+    fi
+}
+
+# ── Help ──────────────────────────────────────────────────────────
 
 cmd_help() {
-    echo -e "${C_CYAN}Mux-OS${C_RESET} — Android App Launcher"
+    echo -e "${C_CYAN}Mux-OS${C_RESET} — Android App Launcher & Tools"
     echo ""
-    echo -e "  ${C_GREEN}mux${C_RESET}               List available apps"
-    echo -e "  ${C_GREEN}mux <app>${C_RESET}          Launch an app"
-    echo -e "  ${C_GREEN}mux <app> <query>${C_RESET}   Search in app or web"
+    echo -e "  ${C_GREEN}mux${C_RESET}                 List available apps"
+    echo -e "  ${C_GREEN}mux <app>${C_RESET}            Launch an app"
+    echo -e "  ${C_GREEN}mux <app> <query>${C_RESET}     Search in app or web"
+    echo ""
+    echo -e "  ${C_GREEN}mux ps${C_RESET}               List running app processes"
+    echo -e "  ${C_GREEN}mux top${C_RESET}               Show CPU/memory overview"
+    echo -e "  ${C_GREEN}mux screencap${C_RESET}         Take a screenshot"
+    echo -e "  ${C_GREEN}mux notify [title] [msg]${C_RESET}  Send a notification"
+    echo -e "  ${C_GREEN}mux kill <app>${C_RESET}        Force-stop an app (Shizuku)"
     echo ""
     list_commands
 }
@@ -140,6 +222,23 @@ main() {
             ;;
         "")
             cmd_help
+            ;;
+        kill)
+            shift
+            "$MUX_ROOT/mux-kill.sh" "$@"
+            ;;
+        ps)
+            cmd_ps
+            ;;
+        top)
+            cmd_top
+            ;;
+        screencap|sc)
+            cmd_screencap
+            ;;
+        notify|notification)
+            shift
+            cmd_notify "$@"
             ;;
         *)
             security_check "$@" || exit 1
